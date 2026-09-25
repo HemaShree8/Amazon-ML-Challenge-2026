@@ -6,6 +6,7 @@ against the provided training ground truth.
 """
 
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 
 def load_ground_truth(path):
@@ -19,10 +20,44 @@ def load_ground_truth(path):
 
     df = pd.read_csv(path, sep="\t")
 
-    # Convert missing values to empty strings.
+    # Empty match lists are represented as empty strings
     df["matched_entity_ids"] = df["matched_entity_ids"].fillna("")
 
     return df
+
+
+def create_validation_split(
+    ground_truth,
+    validation_size=0.2,
+    random_state=42
+):
+    """
+    Split ground truth into training and validation sets.
+
+    Parameters
+    ----------
+    ground_truth : pandas.DataFrame
+        Ground-truth data.
+
+    validation_size : float
+        Fraction of data used for validation.
+
+    random_state : int
+        Ensures the same split is produced every time.
+
+    Returns
+    -------
+    train_df, validation_df
+    """
+
+    train_df, validation_df = train_test_split(
+        ground_truth,
+        test_size=validation_size,
+        random_state=random_state,
+        shuffle=True
+    )
+
+    return train_df, validation_df
 
 
 def parse_matches(value):
@@ -30,18 +65,20 @@ def parse_matches(value):
     Convert a comma-separated match string into a set.
 
     Example:
-        'S2-123,S3-456' -> {'S2-123', 'S3-456'}
+        'S2-123,S3-456'
+        -> {'S2-123', 'S3-456'}
 
-        '' -> set()
+        ''
+        -> set()
     """
 
     if pd.isna(value) or str(value).strip() == "":
         return set()
 
     return {
-        x.strip()
-        for x in str(value).split(",")
-        if x.strip()
+        match_id.strip()
+        for match_id in str(value).split(",")
+        if match_id.strip()
     }
 
 
@@ -67,12 +104,12 @@ def evaluate_predictions(predictions, ground_truth):
 
     Parameters
     ----------
-    predictions : DataFrame
+    predictions : pandas.DataFrame
         Must contain:
             source1_entity_id
             matched_entity_ids
 
-    ground_truth : DataFrame
+    ground_truth : pandas.DataFrame
         Must contain:
             source1_entity_id
             matched_entity_ids
@@ -80,10 +117,10 @@ def evaluate_predictions(predictions, ground_truth):
     Returns
     -------
     dict
-        Precision, recall, F0.5 and TP/FP/FN totals.
+        TP, FP, FN, precision, recall and F0.5.
     """
 
-    # Convert ground truth to dictionary
+    # Convert ground truth into a dictionary
     gt_dict = {
         row["source1_entity_id"]: parse_matches(
             row["matched_entity_ids"]
@@ -91,7 +128,7 @@ def evaluate_predictions(predictions, ground_truth):
         for _, row in ground_truth.iterrows()
     }
 
-    # Convert predictions to dictionary
+    # Convert predictions into a dictionary
     pred_dict = {
         row["source1_entity_id"]: parse_matches(
             row["matched_entity_ids"]
@@ -103,36 +140,44 @@ def evaluate_predictions(predictions, ground_truth):
     total_fp = 0
     total_fn = 0
 
+    # Compare predictions against ground truth
     for source1_id, expected in gt_dict.items():
 
-        predicted = pred_dict.get(source1_id, set())
+        predicted = pred_dict.get(
+            source1_id,
+            set()
+        )
 
         # Correctly predicted matches
         tp = len(expected & predicted)
 
-        # Predicted matches that are not actually matches
+        # Predicted but incorrect matches
         fp = len(predicted - expected)
 
-        # Real matches that the model missed
+        # Correct matches that were missed
         fn = len(expected - predicted)
 
         total_tp += tp
         total_fp += fp
         total_fn += fn
 
-    # Precision
+    # Calculate precision
     if total_tp + total_fp == 0:
         precision = 0.0
     else:
         precision = total_tp / (total_tp + total_fp)
 
-    # Recall
+    # Calculate recall
     if total_tp + total_fn == 0:
         recall = 0.0
     else:
         recall = total_tp / (total_tp + total_fn)
 
-    f05 = calculate_f05(precision, recall)
+    # Calculate F0.5
+    f05 = calculate_f05(
+        precision,
+        recall
+    )
 
     return {
         "true_positives": total_tp,
@@ -144,9 +189,12 @@ def evaluate_predictions(predictions, ground_truth):
     }
 
 
-def evaluate_file(prediction_path, ground_truth_path):
+def evaluate_file(
+    prediction_path,
+    ground_truth_path
+):
     """
-    Convenience function to evaluate two TSV files.
+    Evaluate predictions stored in a TSV file.
     """
 
     predictions = pd.read_csv(
@@ -166,28 +214,31 @@ def evaluate_file(prediction_path, ground_truth_path):
 
 if __name__ == "__main__":
 
-    # Example paths.
-    # Change these if your repository uses different paths.
-
-    prediction_path = (
-        "output/predictions.tsv"
-    )
-
+    # Load ground truth
     ground_truth_path = (
         "dataset/train/train_ground_truth.tsv"
     )
 
-    results = evaluate_file(
-        prediction_path,
+    ground_truth = load_ground_truth(
         ground_truth_path
     )
 
-    print("\nEvaluation Results")
-    print("------------------")
+    # Create train/validation split
+    train_gt, validation_gt = create_validation_split(
+        ground_truth
+    )
 
-    for key, value in results.items():
-
-        if isinstance(value, float):
-            print(f"{key}: {value:.4f}")
-        else:
-            print(f"{key}: {value}")
+    print("Validation Split")
+    print("-----------------")
+    print(
+        "Total rows:",
+        len(ground_truth)
+    )
+    print(
+        "Training rows:",
+        len(train_gt)
+    )
+    print(
+        "Validation rows:",
+        len(validation_gt)
+    )
