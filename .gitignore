@@ -12,3 +12,9 @@ env/
 
 # macOS
 .DS_Store
+
+# Challenge datasets
+dataset/
+
+# Generated large files
+output/*.tsv
